@@ -1,0 +1,29 @@
+# Build directories
+build/
+build-debug/
+build-release/
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Compiled output
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+Desktop.ini
