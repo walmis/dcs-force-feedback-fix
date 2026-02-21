@@ -12,6 +12,7 @@ add_library(dinput8 SHARED
     src/logger.cpp
     src/config.cpp
     src/ffb_filter.cpp
+    src/ffb_state_registry.cpp
     src/wrapper_effect.cpp
     src/wrapper_device8.cpp
     src/wrapper_dinput8.cpp

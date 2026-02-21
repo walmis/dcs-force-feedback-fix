@@ -27,6 +27,7 @@ public:
     bool ffbEnabled      = true;
     bool ffbLogEffects   = true;
     int  ffbDefaultScale = 100;
+    bool ffbAutoRestart  = true;   // auto-restart effects after device reconnect
 
     // [FFBDevices] — ordered rules, first match wins
     std::vector<DeviceRule> deviceRules;

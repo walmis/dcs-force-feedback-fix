@@ -68,6 +68,8 @@ bool Config::load(const wchar_t* iniPath) {
                 int s = _wtoi(value.c_str());
                 ffbDefaultScale = std::clamp(s, 0, 100);
             }
+            else if (keyLo == L"autorestart")
+                ffbAutoRestart = (valLo == L"true" || valLo == L"1");
         }
         else if (section == L"ffbdevices") {
             DeviceRule rule;

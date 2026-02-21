@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Valmantas Paliksa
 #include "wrapper_effect.h"
+#include "ffb_state_registry.h"
 #include "logger.h"
 #include <cstring>
 
@@ -86,6 +87,10 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::GetParameters(LPDIEFFECT peff, DWORD dw
 HRESULT STDMETHODCALLTYPE WrapperEffect::SetParameters(LPCDIEFFECT peff, DWORD dwFlags) {
     m_filter->logEffectParams(peff);
 
+    // Record params for auto-restart on reconnect
+    FFBStateRegistry::instance().recordParams(
+        m_filter->deviceName(), m_guid, peff);
+
     if (!m_filter->isFFBAllowed()) return DI_OK;  // silently swallow
 
     if (!m_real) return DI_OK;
@@ -102,6 +107,11 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::SetParameters(LPCDIEFFECT peff, DWORD d
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::Start(DWORD dwIterations, DWORD dwFlags) {
     m_filter->logEffectStart(dwIterations, dwFlags);
+
+    // Record start for auto-restart on reconnect
+    FFBStateRegistry::instance().recordStart(
+        m_filter->deviceName(), m_guid, dwIterations, dwFlags);
+
     if (!m_filter->isFFBAllowed()) return DI_OK;
     if (!m_real) return DI_OK;
     return m_real->Start(dwIterations, dwFlags);
@@ -109,6 +119,11 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::Start(DWORD dwIterations, DWORD dwFlags
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::Stop() {
     m_filter->logEffectStop();
+
+    // Record stop so auto-restart knows not to restart stopped effects
+    FFBStateRegistry::instance().recordStop(
+        m_filter->deviceName(), m_guid);
+
     if (!m_filter->isFFBAllowed()) return DI_OK;
     if (!m_real) return DI_OK;
     return m_real->Stop();

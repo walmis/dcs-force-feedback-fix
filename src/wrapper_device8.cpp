@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Valmantas Paliksa
 #include "wrapper_device8.h"
 #include "wrapper_effect.h"
+#include "ffb_state_registry.h"
+#include "config.h"
 #include "logger.h"
 
 // ============================================================================
@@ -253,7 +255,69 @@ HRESULT STDMETHODCALLTYPE WrapperDevice8<U>::CreateEffect(
 
     if (SUCCEEDED(hr) && realEffect) {
         // Wrap the real effect with our filter
-        *ppdeff = new WrapperEffect(realEffect, m_filter);
+        auto* wrapper = new WrapperEffect(realEffect, m_filter);
+        *ppdeff = wrapper;
+
+        // --- Auto-restart: check if this effect was previously running ---
+        if (Config::instance().ffbAutoRestart && m_filter->isFFBAllowed()) {
+            auto& registry = FFBStateRegistry::instance();
+            DWORD iterations = 0, startFlags = 0;
+            if (registry.wasRunning(m_filter->deviceName(), rguid,
+                                    iterations, startFlags))
+            {
+                LOG_INFO("FFB [%ls] Auto-restarting %s after reconnect"
+                         " (iterations=%lu flags=0x%lx)",
+                         m_filter->deviceName().c_str(),
+                         FFBFilter::effectGuidToString(rguid),
+                         iterations, startFlags);
+
+                // Replay last-known parameters if available
+                const auto* record = registry.getRecord(
+                    m_filter->deviceName(), rguid);
+                if (record && record->hasParams) {
+                    DIEFFECT paramsCopy = record->params;
+                    paramsCopy.dwSize = sizeof(DIEFFECT);
+
+                    // Build DIEP flags dynamically — only include flags for
+                    // fields that are actually populated, otherwise DI
+                    // returns E_INVALIDARG.
+                    DWORD setFlags = DIEP_NODOWNLOAD;  // don't auto-download yet
+                    if (paramsCopy.dwDuration)   setFlags |= DIEP_DURATION;
+                    if (paramsCopy.dwGain)       setFlags |= DIEP_GAIN;
+                    if (paramsCopy.dwSamplePeriod) setFlags |= DIEP_SAMPLEPERIOD;
+                    if (paramsCopy.dwStartDelay) setFlags |= DIEP_STARTDELAY;
+                    if (paramsCopy.cAxes > 0 && paramsCopy.rgdwAxes)
+                        setFlags |= DIEP_AXES | DIEP_DIRECTION;
+                    if (paramsCopy.cbTypeSpecificParams > 0 &&
+                        paramsCopy.lpvTypeSpecificParams)
+                        setFlags |= DIEP_TYPESPECIFICPARAMS;
+                    if (paramsCopy.lpEnvelope)
+                        setFlags |= DIEP_ENVELOPE;
+
+                    LOG_DEBUG("FFB [%ls] Auto-restart SetParameters flags=0x%lx"
+                              " axes=%lu typeSpec=%lu envelope=%s",
+                              m_filter->deviceName().c_str(), setFlags,
+                              paramsCopy.cAxes,
+                              paramsCopy.cbTypeSpecificParams,
+                              paramsCopy.lpEnvelope ? "yes" : "no");
+
+                    HRESULT spHr = realEffect->SetParameters(
+                        &paramsCopy, setFlags);
+                    if (FAILED(spHr)) {
+                        LOG_WARN("FFB [%ls] Auto-restart SetParameters failed: 0x%08lx",
+                                 m_filter->deviceName().c_str(), spHr);
+                    }
+                }
+
+                // Auto-start the effect
+                HRESULT startHr = realEffect->Start(iterations, startFlags);
+                if (FAILED(startHr)) {
+                    LOG_WARN("FFB [%ls] Auto-restart Start failed: 0x%08lx",
+                             m_filter->deviceName().c_str(), startHr);
+                }
+            }
+        }
+
         return hr;
     }
 
