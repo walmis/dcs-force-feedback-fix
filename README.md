@@ -12,6 +12,9 @@ disable or scale FFB for specific joystick types (e.g. vJoy) in DCS World.
 - **Per-device FFB blocking** — completely disable FFB for devices matched by
   product name substring (e.g. vJoy)
 - **Per-device FFB scaling** — scale force magnitudes to a percentage (0-100%)
+- **FFB auto-restart after reconnect** — automatically restores running FFB
+  effects (spring centering, trim forces, etc.) when a device is disconnected
+  and reconnected mid-session, without requiring a mission restart
 - **FFB effect logging** — log all FFB operations (CreateEffect, Start, Stop,
   SetParameters, SendForceFeedbackCommand) to a log file for debugging
 - **INI-based configuration** — simple `dinput8.ini` config file, no registry
@@ -63,6 +66,7 @@ LogLevel=3          ; 0=none, 1=error, 2=warn, 3=info, 4=debug
 Enabled=true        ; Global FFB enable (false = block ALL devices)
 LogEffects=true     ; Log every FFB operation to the log file
 DefaultScale=100    ; Default force scale for all devices (0-100)
+AutoRestart=true    ; Auto-restart FFB effects after device reconnection
 
 [FFBDevices]
 ; Per-device rules — first substring match wins.
@@ -107,15 +111,18 @@ Game (DCS)
 ├── dinput8.def              # DLL export definitions
 ├── dinput8.ini              # Default configuration
 ├── README.md
+├── docs/
+│   └── PLAN-device-reconnect.md  # Design document for auto-restart feature
 └── src/
-    ├── dllmain.cpp          # DLL entry point + DirectInput8Create export
-    ├── proxy.h/cpp          # Loads real system dinput8.dll
-    ├── logger.h/cpp         # File-based logging
-    ├── config.h/cpp         # INI parser + device policy resolution
-    ├── ffb_filter.h/cpp     # FFB policy enforcement + effect logging
-    ├── wrapper_dinput8.h/cpp   # IDirectInput8 A/W wrapper
-    ├── wrapper_device8.h/cpp   # IDirectInputDevice8 A/W wrapper
-    └── wrapper_effect.h/cpp    # IDirectInputEffect wrapper
+    ├── dllmain.cpp              # DLL entry point + DirectInput8Create export
+    ├── proxy.h/cpp              # Loads real system dinput8.dll
+    ├── logger.h/cpp             # File-based logging
+    ├── config.h/cpp             # INI parser + device policy resolution
+    ├── ffb_filter.h/cpp         # FFB policy enforcement + effect logging
+    ├── ffb_state_registry.h/cpp # Global FFB state tracking for auto-restart
+    ├── wrapper_dinput8.h/cpp    # IDirectInput8 A/W wrapper
+    ├── wrapper_device8.h/cpp    # IDirectInputDevice8 A/W wrapper
+    └── wrapper_effect.h/cpp     # IDirectInputEffect wrapper
 ```
 
 ## License
