@@ -47,7 +47,7 @@ The output `dinput8.dll` is placed in the build directory.
 ## Installation
 
 1. Copy `dinput8.dll` to the game directory (next to the game executable).
-   For DCS World: `C:\Program Files\Eagle Dynamics\DCS World\bin\`
+   For DCS World: `C:\Program Files\Eagle Dynamics\DCS World\bin-mt\`
 2. Copy `dinput8.ini` to the same directory.
 3. Edit `dinput8.ini` to configure FFB rules for your devices.
 4. Launch the game. A log file `dinput8_wrapper.log` will be created in the
@@ -71,7 +71,9 @@ AutoRestart=true    ; Auto-restart FFB effects after device reconnection
 [FFBDevices]
 ; Per-device rules — first substring match wins.
 ; Actions: block, allow, or 0-100 (scale percentage)
-vJoy=block
+vJoy=block          ; Block all FFB for any device with "vJoy" in the name
+Pedals=block        ; Block FFB for any device with "Pedals" in the name
+Collective=block    ; Block collective FFB for helicopters
 ; MSFFB 2=50        ; Example: scale to 50%
 ```
 
