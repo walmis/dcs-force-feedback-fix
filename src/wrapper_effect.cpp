@@ -98,7 +98,7 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::SetParameters(LPCDIEFFECT peff, DWORD d
     // If scaling is active, work on a copy
     if (m_filter->getScale() < 100 && peff) {
         DIEFFECT copy = *peff;
-        m_filter->scaleEffect(&copy);
+        m_filter->scaleEffect(&copy, m_guid);
         return m_real->SetParameters(&copy, dwFlags);
     }
 

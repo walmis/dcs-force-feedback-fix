@@ -22,7 +22,8 @@ public:
     const std::wstring& deviceName() const { return m_deviceName; }
 
     // Scale type-specific force magnitudes in a DIEFFECT copy (modifies in place).
-    void scaleEffect(DIEFFECT* pEffect) const;
+    // effectGuid is required to correctly identify the type-specific data struct.
+    void scaleEffect(DIEFFECT* pEffect, REFGUID effectGuid) const;
 
     // --------------- Logging helpers ---------------
     void logEffectCreation(REFGUID rguid) const;

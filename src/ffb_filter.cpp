@@ -12,7 +12,21 @@ FFBFilter::FFBFilter(const FFBPolicy& policy, const std::wstring& deviceName)
 // ---------------------------------------------------------------------------
 // Force scaling
 // ---------------------------------------------------------------------------
-void FFBFilter::scaleEffect(DIEFFECT* pEffect) const {
+
+// Helper: is this a condition-type effect?
+static bool isConditionEffect(REFGUID guid) {
+    return guid == GUID_Spring || guid == GUID_Damper ||
+           guid == GUID_Inertia || guid == GUID_Friction;
+}
+
+// Helper: is this a periodic-type effect?
+static bool isPeriodicEffect(REFGUID guid) {
+    return guid == GUID_Square || guid == GUID_Sine ||
+           guid == GUID_Triangle || guid == GUID_SawtoothUp ||
+           guid == GUID_SawtoothDown;
+}
+
+void FFBFilter::scaleEffect(DIEFFECT* pEffect, REFGUID effectGuid) const {
     if (!pEffect || m_policy.scale >= 100) return;
 
     float factor = m_policy.scale / 100.0f;
@@ -23,21 +37,58 @@ void FFBFilter::scaleEffect(DIEFFECT* pEffect) const {
     if (!pEffect->lpvTypeSpecificParams || pEffect->cbTypeSpecificParams == 0)
         return;
 
-    // Constant force
-    if (pEffect->cbTypeSpecificParams >= sizeof(DICONSTANTFORCE)) {
+    // Constant force — DICONSTANTFORCE { lMagnitude }
+    if (effectGuid == GUID_ConstantForce &&
+        pEffect->cbTypeSpecificParams >= sizeof(DICONSTANTFORCE))
+    {
         auto* p = static_cast<DICONSTANTFORCE*>(pEffect->lpvTypeSpecificParams);
         p->lMagnitude = static_cast<LONG>(p->lMagnitude * factor);
     }
-    // Ramp force
-    else if (pEffect->cbTypeSpecificParams >= sizeof(DIRAMPFORCE)) {
+    // Ramp force — DIRAMPFORCE { lStart, lEnd }
+    else if (effectGuid == GUID_RampForce &&
+             pEffect->cbTypeSpecificParams >= sizeof(DIRAMPFORCE))
+    {
         auto* p = static_cast<DIRAMPFORCE*>(pEffect->lpvTypeSpecificParams);
         p->lStart = static_cast<LONG>(p->lStart * factor);
         p->lEnd   = static_cast<LONG>(p->lEnd   * factor);
     }
-    // Periodic force (sine, square, triangle, sawtooth)
-    else if (pEffect->cbTypeSpecificParams >= sizeof(DIPERIODIC)) {
+    // Periodic — DIPERIODIC { dwMagnitude, lOffset, dwPhase, dwPeriod }
+    // Scale magnitude only; offset/phase/period are positional, not force.
+    else if (isPeriodicEffect(effectGuid) &&
+             pEffect->cbTypeSpecificParams >= sizeof(DIPERIODIC))
+    {
         auto* p = static_cast<DIPERIODIC*>(pEffect->lpvTypeSpecificParams);
         p->dwMagnitude = static_cast<DWORD>(p->dwMagnitude * factor);
+    }
+    // Condition — DICONDITION[] (one per axis)
+    // Scale coefficients and saturation; do NOT scale offset or deadband.
+    else if (isConditionEffect(effectGuid) &&
+             pEffect->cbTypeSpecificParams >= sizeof(DICONDITION))
+    {
+        DWORD count = pEffect->cbTypeSpecificParams / sizeof(DICONDITION);
+        auto* conds = static_cast<DICONDITION*>(pEffect->lpvTypeSpecificParams);
+        for (DWORD i = 0; i < count; ++i) {
+            conds[i].lPositiveCoefficient =
+                static_cast<LONG>(conds[i].lPositiveCoefficient * factor);
+            conds[i].lNegativeCoefficient =
+                static_cast<LONG>(conds[i].lNegativeCoefficient * factor);
+            conds[i].dwPositiveSaturation =
+                static_cast<DWORD>(conds[i].dwPositiveSaturation * factor);
+            conds[i].dwNegativeSaturation =
+                static_cast<DWORD>(conds[i].dwNegativeSaturation * factor);
+            // lOffset and lDeadBand are NOT scaled — they are positional
+        }
+    }
+    // Custom force — DICUSTOMFORCE { cChannels, cSamples, dwSamplePeriod, rglForceData[] }
+    else if (effectGuid == GUID_CustomForce &&
+             pEffect->cbTypeSpecificParams >= sizeof(DICUSTOMFORCE))
+    {
+        auto* p = static_cast<DICUSTOMFORCE*>(pEffect->lpvTypeSpecificParams);
+        if (p->rglForceData) {
+            for (DWORD i = 0; i < p->cSamples * p->cChannels; ++i) {
+                p->rglForceData[i] = static_cast<LONG>(p->rglForceData[i] * factor);
+            }
+        }
     }
 }
 
