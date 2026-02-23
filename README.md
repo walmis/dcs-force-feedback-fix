@@ -72,9 +72,66 @@ AutoRestart=true    ; Auto-restart FFB effects after device reconnection
 ; Per-device rules — first substring match wins.
 ; Actions: block, allow, or 0-100 (scale percentage)
 vJoy=block          ; Block all FFB for any device with "vJoy" in the name
-Pedals=block        ; Block FFB for any device with "Pedals" in the name
-Collective=block    ; Block collective FFB for helicopters
 ; MSFFB 2=50        ; Example: scale to 50%
+```
+
+### How to Find Your Device Names
+
+To block unwanted devices from receiving FFB, you need to know their exact
+DirectInput product names. There are two ways:
+
+**Option 1 — From the wrapper log:**
+
+1. Install the wrapper (see [Installation](#installation))
+2. Set `LogLevel=3` (Info) in `dinput8.ini`
+3. Launch DCS and load a mission
+4. Open `dinput8_wrapper.log` in the game directory
+5. Look for `CreateDevice:` lines:
+   ```
+   [INFO]  CreateDevice: [VPforce Rhino FFB Joystick]  FFB=allowed  scale=100%
+   [INFO]  CreateDevice: [vJoy Device]  FFB=BLOCKED  scale=0%
+   [INFO]  CreateDevice: [Mouse]  FFB=allowed  scale=100%
+   ```
+   The text in `[brackets]` is the device product name to use in `[FFBDevices]`.
+
+**Option 2 — From `dcs.log`:**
+
+1. Open `dcs.log` (in `%USERPROFILE%\Saved Games\DCS\Logs\`)
+2. Search for `INPUT (Main): created` lines:
+   ```
+   INPUT (Main): created [VPforce Rhino FFB Joystick] with full id [...],ForceFeedBack: yes
+   INPUT (Main): created [vJoy Device] with full id [...]
+   INPUT (Main): created [vJoy Device] with full id [...]
+   ```
+   Devices with `ForceFeedBack: yes` are FFB-capable. Others may still
+   receive FFB commands from DCS if it thinks they support it.
+
+### Blocking Unwanted FFB Devices
+
+Add lines to the `[FFBDevices]` section using a substring of the product
+name. Matching is case-insensitive and first match wins.
+
+**Example — block vJoy and keep only VPforce for FFB:**
+```ini
+[FFBDevices]
+vJoy=block
+```
+
+**Example — block everything except one specific device:**
+```ini
+[FFB]
+Enabled=false       ; Disable FFB globally
+
+[FFBDevices]
+VPforce=allow       ; Explicitly allow FFB for VPforce devices
+```
+
+**Example — scale one device, block others:**
+```ini
+[FFBDevices]
+vJoy=block
+Pedals=block
+VPforce=50          ; Scale VPforce FFB to 50%
 ```
 
 ### Device Matching
