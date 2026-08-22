@@ -127,7 +127,22 @@ HRESULT STDMETHODCALLTYPE WrapperDevice8<U>::SetProperty(
 
 template<bool U>
 HRESULT STDMETHODCALLTYPE WrapperDevice8<U>::Acquire() {
-    return m_real->Acquire();
+    HRESULT hr = m_real->Acquire();
+    // A device that cannot be acquired will take every effect the game
+    // creates and play none of them, which looks like nothing at all in a
+    // log that records only what was asked for.
+    //
+    // Once per device: games poll Acquire every frame while unfocused, and
+    // a keyboard that will never acquire exclusively otherwise buries the
+    // one failure that mattered under hundreds of identical lines.
+    if (FAILED(hr) && !m_acquireFailed) {
+        m_acquireFailed = true;
+        LOG_INFO("Acquire [%ls] FAILED: hr=0x%08lx (further failures for this "
+                 "device not logged)", m_filter->deviceName().c_str(), hr);
+    } else if (SUCCEEDED(hr)) {
+        m_acquireFailed = false;
+    }
+    return hr;
 }
 
 template<bool U>
@@ -159,7 +174,16 @@ HRESULT STDMETHODCALLTYPE WrapperDevice8<U>::SetEventNotification(HANDLE hEvent)
 
 template<bool U>
 HRESULT STDMETHODCALLTYPE WrapperDevice8<U>::SetCooperativeLevel(HWND hwnd, DWORD dwFlags) {
-    return m_real->SetCooperativeLevel(hwnd, dwFlags);
+    HRESULT hr = m_real->SetCooperativeLevel(hwnd, dwFlags);
+    // Which devices asked for exclusive access, and whether they got it -
+    // the pair of facts that explain most "effects created but silent"
+    // reports, and neither was previously visible at any log level.
+    LOG_INFO("SetCooperativeLevel [%ls]: flags=0x%lx%s%s -> %s",
+             m_filter->deviceName().c_str(), dwFlags,
+             (dwFlags & DISCL_EXCLUSIVE)    ? " EXCLUSIVE"    : "",
+             (dwFlags & DISCL_NONEXCLUSIVE) ? " NONEXCLUSIVE" : "",
+             SUCCEEDED(hr) ? "ok" : "FAILED");
+    return hr;
 }
 
 template<bool U>
