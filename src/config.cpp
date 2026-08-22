@@ -29,8 +29,23 @@ bool Config::load(const wchar_t* iniPath) {
 
     std::wstring line;
     std::wstring section;
+    bool firstLine = true;
 
     while (std::getline(file, line)) {
+        // A UTF-8 byte order mark, if an editor wrote one.  std::wifstream
+        // under the classic locale does not decode UTF-8, so the mark
+        // arrives as three widened bytes rather than one U+FEFF - and they
+        // sit in front of "[General]", which then stops looking like a
+        // section header.  Every key below it is silently ignored.
+        if (firstLine) {
+            firstLine = false;
+            if (line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) {
+                line.erase(0, 3);
+            }
+        }
         line = trim(line);
         if (line.empty() || line[0] == L';' || line[0] == L'#')
             continue;
