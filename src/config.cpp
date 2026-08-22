@@ -98,6 +98,13 @@ bool Config::load(const wchar_t* iniPath) {
             else if (keyLo == L"autorestart")
                 ffbAutoRestart = (valLo == L"true" || valLo == L"1");
         }
+        else if (section == L"deviceorder") {
+            // The key is the position, the value is the device.
+            OrderEntry entry;
+            entry.rank      = _wtoi(key.c_str());
+            entry.nameMatch = value;
+            deviceOrder.push_back(entry);
+        }
         else if (section == L"ffbdevices") {
             DeviceRule rule;
             rule.nameMatch = key;  // keep original case for display
@@ -121,6 +128,20 @@ bool Config::load(const wchar_t* iniPath) {
 
     return true;
 }
+
+int Config::orderRank(const wchar_t* productName) const {
+    std::wstring nameLo = productName ? toLower(productName) : std::wstring();
+
+    for (const auto& entry : deviceOrder) {
+        // an empty name never matches: it would match every device
+        if (!nameLo.empty() &&
+            nameLo.find(toLower(entry.nameMatch)) != std::wstring::npos)
+            return entry.rank;
+    }
+    // unlisted: after everything named, in the order Windows gave us
+    return INT_MAX;
+}
+
 
 void Config::getDevicePolicy(const wchar_t* productName,
                              bool& outEnabled, int& outScale) const
