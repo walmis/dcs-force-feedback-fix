@@ -47,6 +47,18 @@ bool Config::load(const wchar_t* iniPath) {
 
         std::wstring key   = trim(line.substr(0, eq));
         std::wstring value = trim(line.substr(eq + 1));
+
+        // Strip an inline comment: "Monster=block   ; my stick".
+        //
+        // Without this the value is "block   ; my stick", which matches no
+        // keyword and falls through to _wtoi() = 0 - so a rule the user
+        // wrote as 'allow' silently becomes scale 0, which is a block.  The
+        // sample config in the README uses trailing comments, so this is a
+        // shape people copy.
+        auto comment = value.find_first_of(L";#");
+        if (comment != std::wstring::npos)
+            value = trim(value.substr(0, comment));
+
         std::wstring keyLo = toLower(key);
         std::wstring valLo = toLower(value);
 
