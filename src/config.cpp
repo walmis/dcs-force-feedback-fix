@@ -29,8 +29,23 @@ bool Config::load(const wchar_t* iniPath) {
 
     std::wstring line;
     std::wstring section;
+    bool firstLine = true;
 
     while (std::getline(file, line)) {
+        // A UTF-8 byte order mark, if an editor wrote one.  std::wifstream
+        // under the classic locale does not decode UTF-8, so the mark
+        // arrives as three widened bytes rather than one U+FEFF - and they
+        // sit in front of "[General]", which then stops looking like a
+        // section header.  Every key below it is silently ignored.
+        if (firstLine) {
+            firstLine = false;
+            if (line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) {
+                line.erase(0, 3);
+            }
+        }
         line = trim(line);
         if (line.empty() || line[0] == L';' || line[0] == L'#')
             continue;
@@ -47,6 +62,18 @@ bool Config::load(const wchar_t* iniPath) {
 
         std::wstring key   = trim(line.substr(0, eq));
         std::wstring value = trim(line.substr(eq + 1));
+
+        // Strip an inline comment: "Monster=block   ; my stick".
+        //
+        // Without this the value is "block   ; my stick", which matches no
+        // keyword and falls through to _wtoi() = 0 - so a rule the user
+        // wrote as 'allow' silently becomes scale 0, which is a block.  The
+        // sample config in the README uses trailing comments, so this is a
+        // shape people copy.
+        auto comment = value.find_first_of(L";#");
+        if (comment != std::wstring::npos)
+            value = trim(value.substr(0, comment));
+
         std::wstring keyLo = toLower(key);
         std::wstring valLo = toLower(value);
 
@@ -71,6 +98,13 @@ bool Config::load(const wchar_t* iniPath) {
             else if (keyLo == L"autorestart")
                 ffbAutoRestart = (valLo == L"true" || valLo == L"1");
         }
+        else if (section == L"deviceorder") {
+            // The key is the position, the value is the device.
+            OrderEntry entry;
+            entry.rank      = _wtoi(key.c_str());
+            entry.nameMatch = value;
+            deviceOrder.push_back(entry);
+        }
         else if (section == L"ffbdevices") {
             DeviceRule rule;
             rule.nameMatch = key;  // keep original case for display
@@ -94,6 +128,20 @@ bool Config::load(const wchar_t* iniPath) {
 
     return true;
 }
+
+int Config::orderRank(const wchar_t* productName) const {
+    std::wstring nameLo = productName ? toLower(productName) : std::wstring();
+
+    for (const auto& entry : deviceOrder) {
+        // an empty name never matches: it would match every device
+        if (!nameLo.empty() &&
+            nameLo.find(toLower(entry.nameMatch)) != std::wstring::npos)
+            return entry.rank;
+    }
+    // unlisted: after everything named, in the order Windows gave us
+    return INT_MAX;
+}
+
 
 void Config::getDevicePolicy(const wchar_t* productName,
                              bool& outEnabled, int& outScale) const
