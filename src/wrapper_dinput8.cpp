@@ -11,6 +11,83 @@
 #include <string>
 
 // ============================================================================
+// Callback trampolines for device-hide filtering in EnumDevices
+// ============================================================================
+
+// Helper: convert a narrow (ANSI) product name to wide for policy lookups.
+static std::wstring ansiToWide(const char* s) {
+    int len = MultiByteToWideChar(CP_ACP, 0, s, -1, nullptr, 0);
+    std::wstring ws(len, L'\0');
+    MultiByteToWideChar(CP_ACP, 0, s, -1, ws.data(), len);
+    if (!ws.empty() && ws.back() == L'\0') ws.pop_back();
+    return ws;
+}
+
+struct EnumDevCtxW {
+    LPDIENUMDEVICESCALLBACKW userCb;
+    LPVOID                   userRef;
+    // NOTE: EnumDevices is synchronous — ctx is alive for the entire call.
+    static BOOL CALLBACK cb(LPCDIDEVICEINSTANCEW lpddi, LPVOID pv) {
+        auto* c = static_cast<EnumDevCtxW*>(pv);
+        if (Config::instance().isDeviceHidden(lpddi->tszProductName)) {
+            LOG_INFO("EnumDevices: hiding [%ls]", lpddi->tszProductName);
+            return DIENUM_CONTINUE;
+        }
+        return c->userCb(lpddi, c->userRef);
+    }
+};
+
+struct EnumDevCtxA {
+    LPDIENUMDEVICESCALLBACKA userCb;
+    LPVOID                   userRef;
+    // NOTE: EnumDevices is synchronous — ctx is alive for the entire call.
+    static BOOL CALLBACK cb(LPCDIDEVICEINSTANCEA lpddi, LPVOID pv) {
+        auto* c = static_cast<EnumDevCtxA*>(pv);
+        std::wstring ws = ansiToWide(lpddi->tszProductName);
+        if (Config::instance().isDeviceHidden(ws.c_str())) {
+            LOG_INFO("EnumDevices: hiding [%ls]", ws.c_str());
+            return DIENUM_CONTINUE;
+        }
+        return c->userCb(lpddi, c->userRef);
+    }
+};
+
+// Callback trampolines for device-hide filtering in EnumDevicesBySemantics
+
+struct EnumSemCtxW {
+    LPDIENUMDEVICESBYSEMANTICSCBW userCb;
+    LPVOID                        userRef;
+    // NOTE: EnumDevicesBySemantics is synchronous — ctx is alive for the entire call.
+    static BOOL CALLBACK cb(LPCDIDEVICEINSTANCEW lpddi,
+                             IDirectInputDevice8W* pdid,
+                             DWORD dwFlags, DWORD dwRemaining, LPVOID pv) {
+        auto* c = static_cast<EnumSemCtxW*>(pv);
+        if (Config::instance().isDeviceHidden(lpddi->tszProductName)) {
+            LOG_INFO("EnumDevicesBySemantics: hiding [%ls]", lpddi->tszProductName);
+            return DIENUM_CONTINUE;
+        }
+        return c->userCb(lpddi, pdid, dwFlags, dwRemaining, c->userRef);
+    }
+};
+
+struct EnumSemCtxA {
+    LPDIENUMDEVICESBYSEMANTICSCBA userCb;
+    LPVOID                        userRef;
+    // NOTE: EnumDevicesBySemantics is synchronous — ctx is alive for the entire call.
+    static BOOL CALLBACK cb(LPCDIDEVICEINSTANCEA lpddi,
+                             IDirectInputDevice8A* pdid,
+                             DWORD dwFlags, DWORD dwRemaining, LPVOID pv) {
+        auto* c = static_cast<EnumSemCtxA*>(pv);
+        std::wstring ws = ansiToWide(lpddi->tszProductName);
+        if (Config::instance().isDeviceHidden(ws.c_str())) {
+            LOG_INFO("EnumDevicesBySemantics: hiding [%ls]", ws.c_str());
+            return DIENUM_CONTINUE;
+        }
+        return c->userCb(lpddi, pdid, dwFlags, dwRemaining, c->userRef);
+    }
+};
+
+// ============================================================================
 // Construction / destruction
 // ============================================================================
 template<bool U>
@@ -115,8 +192,17 @@ HRESULT STDMETHODCALLTYPE WrapperDirectInput8<U>::CreateDevice(
         return hr;
     }
 
-    // Query name and resolve FFB policy
+    // Query name and check if device should be hidden
     std::wstring name = queryDeviceName(realDevice);
+
+    if (Config::instance().isDeviceHidden(name.c_str())) {
+        LOG_INFO("CreateDevice: hiding device [%ls]", name.c_str());
+        realDevice->Release();
+        *lplpDevice = nullptr;
+        return DIERR_DEVICENOTREG;
+    }
+
+    // Resolve FFB policy
 
     bool ffbEnabled = true;
     int  ffbScale   = 100;
@@ -280,8 +366,19 @@ HRESULT STDMETHODCALLTYPE WrapperDirectInput8<U>::EnumDevicesBySemantics(
     const Char* ptszUserName, ActFmtT* lpdiActionFormat,
     EnumSemCbT lpCallback, LPVOID pvRef, DWORD dwFlags)
 {
-    return m_real->EnumDevicesBySemantics(
-        ptszUserName, lpdiActionFormat, lpCallback, pvRef, dwFlags);
+    if (!lpCallback)
+        return m_real->EnumDevicesBySemantics(
+            ptszUserName, lpdiActionFormat, lpCallback, pvRef, dwFlags);
+
+    if constexpr (U) {
+        EnumSemCtxW ctx{ lpCallback, pvRef };
+        return m_real->EnumDevicesBySemantics(
+            ptszUserName, lpdiActionFormat, EnumSemCtxW::cb, &ctx, dwFlags);
+    } else {
+        EnumSemCtxA ctx{ lpCallback, pvRef };
+        return m_real->EnumDevicesBySemantics(
+            ptszUserName, lpdiActionFormat, EnumSemCtxA::cb, &ctx, dwFlags);
+    }
 }
 
 template<bool U>

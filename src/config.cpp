@@ -108,8 +108,14 @@ bool Config::load(const wchar_t* iniPath) {
         else if (section == L"ffbdevices") {
             DeviceRule rule;
             rule.nameMatch = key;  // keep original case for display
+            rule.hidden    = false;
 
-            if (valLo == L"block") {
+            if (valLo == L"hide") {
+                rule.hidden     = true;
+                rule.ffbEnabled = false;
+                rule.ffbScale   = 0;
+            }
+            else if (valLo == L"block") {
                 rule.ffbEnabled = false;
                 rule.ffbScale   = 0;
             }
@@ -162,4 +168,19 @@ void Config::getDevicePolicy(const wchar_t* productName,
             return;  // first match wins
         }
     }
+}
+
+bool Config::isDeviceHidden(const wchar_t* productName) const
+{
+    if (!productName) return false;
+
+    std::wstring nameLo = toLower(productName);
+
+    for (const auto& rule : deviceRules) {
+        std::wstring matchLo = toLower(rule.nameMatch);
+        if (nameLo.find(matchLo) != std::wstring::npos) {
+            return rule.hidden;
+        }
+    }
+    return false;
 }

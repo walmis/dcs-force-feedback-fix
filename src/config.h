@@ -9,6 +9,7 @@
 
 struct DeviceRule {
     std::wstring nameMatch;    // Case-insensitive substring to match against product name
+    bool         hidden;       // true = hide device entirely from the game
     bool         ffbEnabled;   // true = allow FFB, false = block FFB
     int          ffbScale;     // 0-100 scale percentage (only meaningful when ffbEnabled=true)
 };
@@ -60,6 +61,9 @@ public:
     // Writes results into outEnabled and outScale.
     void getDevicePolicy(const wchar_t* productName,
                          bool& outEnabled, int& outScale) const;
+
+    // Returns true if the device should be completely hidden from the game.
+    bool isDeviceHidden(const wchar_t* productName) const;
 
 private:
     Config() = default;
