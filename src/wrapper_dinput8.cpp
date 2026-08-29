@@ -86,9 +86,13 @@ static std::wstring queryDeviceName(IDirectInputDevice8A* dev) {
     di.dwSize = sizeof(di);
     if (SUCCEEDED(dev->GetDeviceInfo(&di))) {
         // Convert narrow product name to wide for consistent policy lookup
+        if (!di.tszProductName) return L"<unknown>";
         int len = MultiByteToWideChar(CP_ACP, 0, di.tszProductName, -1, nullptr, 0);
-        std::wstring ws(len, L'\0');
-        MultiByteToWideChar(CP_ACP, 0, di.tszProductName, -1, ws.data(), len);
+        if (len == 0) return L"<unknown>"; // failure
+        std::wstring ws;
+        ws.resize(len); // includes terminating null
+        if (MultiByteToWideChar(CP_ACP, 0, di.tszProductName, -1, &ws[0], len) == 0)
+            return L"<unknown>";
         if (!ws.empty() && ws.back() == L'\0') ws.pop_back();
         return ws;
     }
@@ -218,7 +222,8 @@ HRESULT STDMETHODCALLTYPE WrapperDirectInput8<U>::EnumDevices(
         if constexpr (U) {
             wcsncpy_s(name, inst.tszProductName, _TRUNCATE);
         } else {
-            MultiByteToWideChar(CP_ACP, 0, inst.tszProductName, -1, name, MAX_PATH);
+            int ret = MultiByteToWideChar(CP_ACP, 0, inst.tszProductName, -1, name, MAX_PATH);
+            if (ret == 0) name[0] = L'\0';
         }
 
         // Only the force feedback enumeration: a caller that did not ask
