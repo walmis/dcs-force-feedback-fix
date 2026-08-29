@@ -5,6 +5,8 @@
 #include "ffb_filter.h"
 #include "config.h"
 #include "logger.h"
+#include <algorithm>
+#include <vector>
 #include <memory>
 #include <string>
 
@@ -225,20 +227,112 @@ HRESULT STDMETHODCALLTYPE WrapperDirectInput8<U>::CreateDevice(
 // ============================================================================
 // Pass-through methods
 // ============================================================================
+// ---------------------------------------------------------------------------
+// Enumeration
+//
+// Two jobs, both optional; the pass-through below is what happens when
+// neither applies.
+//
+// 1. Agreement with capabilities.  GetCapabilities strips the force feedback
+//    flags from a blocked device, but enumeration hands that same device
+//    back when the caller asks for force feedback devices only - so a game
+//    is told two contradictory things about it.
+//
+// 2. Order.  Windows caches the order DirectInput reports devices in, and a
+//    game that gives force feedback to the first devices it sees will keep
+//    giving it to the same ones.  Nothing short of unplugging hardware moves
+//    that order, which is why a separate wrapper exists purely to change it.
+//
+//    Off unless [DeviceOrder] asks for it: some games identify a device by
+//    its position rather than its name, so reordering underneath one that
+//    did not ask would scramble its bindings.
+// ---------------------------------------------------------------------------
+namespace {
+
+/// Whether the game should be shown this device when it asked for force
+/// feedback devices.
+inline bool ffbVisible(const wchar_t* name) {
+    bool enabled = true;
+    int  scale   = 100;
+    Config::instance().getDevicePolicy(name, enabled, scale);
+    return enabled;
+}
+
+template<bool Unicode>
+struct Collected {
+    using InstT = std::conditional_t<Unicode, DIDEVICEINSTANCEW, DIDEVICEINSTANCEA>;
+    std::vector<InstT> devices;
+};
+
+BOOL CALLBACK collectW(LPCDIDEVICEINSTANCEW lpddi, LPVOID pvRef) {
+    static_cast<Collected<true>*>(pvRef)->devices.push_back(*lpddi);
+    return DIENUM_CONTINUE;
+}
+
+BOOL CALLBACK collectA(LPCDIDEVICEINSTANCEA lpddi, LPVOID pvRef) {
+    static_cast<Collected<false>*>(pvRef)->devices.push_back(*lpddi);
+    return DIENUM_CONTINUE;
+}
+
+}  // namespace
+
 template<bool U>
 HRESULT STDMETHODCALLTYPE WrapperDirectInput8<U>::EnumDevices(
     DWORD dwDevType, EnumDevCbT lpCallback, LPVOID pvRef, DWORD dwFlags)
 {
-    if (!lpCallback)
+    const bool wantFFB    = (dwFlags & DIEDFL_FORCEFEEDBACK) != 0;
+    const bool reordering = Config::instance().orderingActive();
+
+    if ((!wantFFB && !reordering) || !lpCallback)
         return m_real->EnumDevices(dwDevType, lpCallback, pvRef, dwFlags);
 
-    if constexpr (U) {
-        EnumDevCtxW ctx{ lpCallback, pvRef };
-        return m_real->EnumDevices(dwDevType, EnumDevCtxW::cb, &ctx, dwFlags);
-    } else {
-        EnumDevCtxA ctx{ lpCallback, pvRef };
-        return m_real->EnumDevices(dwDevType, EnumDevCtxA::cb, &ctx, dwFlags);
+    Collected<U> collected;
+    auto* gather = reinterpret_cast<EnumDevCbT>(U ? (void*)collectW
+                                                  : (void*)collectA);
+    HRESULT hr = m_real->EnumDevices(dwDevType, gather, &collected, dwFlags);
+    if (FAILED(hr)) return hr;
+
+    // Decide what to keep and where it goes before handing any of it on.
+    struct Slot { size_t index; int rank; };
+    std::vector<Slot> order;
+    order.reserve(collected.devices.size());
+
+    for (size_t i = 0; i < collected.devices.size(); ++i) {
+        const auto& inst = collected.devices[i];
+
+        wchar_t name[MAX_PATH] = L"";
+        if constexpr (U) {
+            wcsncpy_s(name, inst.tszProductName, _TRUNCATE);
+        } else {
+            MultiByteToWideChar(CP_ACP, 0, inst.tszProductName, -1, name, MAX_PATH);
+        }
+
+        // Only the force feedback enumeration: a caller that did not ask
+        // for DIEDFL_FORCEFEEDBACK still sees every device, so a blocked
+        // one stays fully usable for its axes and buttons.
+        if (wantFFB && !ffbVisible(name)) {
+            LOG_INFO("EnumDevices: hiding [%ls] from the force feedback list "
+                     "(FFB blocked by policy)", name);
+            continue;
+        }
+        order.push_back({ i, reordering ? Config::instance().orderRank(name)
+                                        : 0 });
     }
+
+    if (reordering) {
+        // stable, so everything sharing a rank - including the whole
+        // unlisted tail - keeps the order Windows gave it
+        std::stable_sort(order.begin(), order.end(),
+                         [](const Slot& a, const Slot& b) {
+                             return a.rank < b.rank;
+                         });
+    }
+
+    for (const auto& slot : order) {
+        if (lpCallback(&collected.devices[slot.index], pvRef) == DIENUM_STOP)
+            break;
+    }
+    return hr;
 }
 
 template<bool U>

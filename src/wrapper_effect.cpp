@@ -6,6 +6,57 @@
 #include <cstring>
 
 // ---------------------------------------------------------------------------
+// Return codes
+//
+// Every force feedback call used to be a bare `return m_real->...()`, so a
+// log recorded that the game asked and never whether it worked.  A Start that
+// came back DIERR_NOTEXCLUSIVEACQUIRED read exactly like one that played.
+// That difference is the whole diagnosis when a stick goes quiet, so failures
+// are named here - at Info, since a log is only collected when something is
+// already wrong.
+// ---------------------------------------------------------------------------
+namespace {
+
+const char* diErrorName(HRESULT hr) {
+    switch (hr) {
+    case DI_OK:                        return "DI_OK";
+    case DI_NOEFFECT:                  return "DI_NOEFFECT";
+    case DI_TRUNCATED:                 return "DI_TRUNCATED";
+    case DIERR_NOTEXCLUSIVEACQUIRED:   return "DIERR_NOTEXCLUSIVEACQUIRED";
+    case DIERR_NOTACQUIRED:            return "DIERR_NOTACQUIRED";
+    case DIERR_INPUTLOST:              return "DIERR_INPUTLOST";
+    case DIERR_INCOMPLETEEFFECT:       return "DIERR_INCOMPLETEEFFECT";
+    case DIERR_EFFECTPLAYING:          return "DIERR_EFFECTPLAYING";
+    case DIERR_DEVICEFULL:             return "DIERR_DEVICEFULL";
+    case DIERR_DEVICENOTREG:           return "DIERR_DEVICENOTREG";
+    case DIERR_INVALIDPARAM:           return "DIERR_INVALIDPARAM";
+    case DIERR_NOINTERFACE:            return "DIERR_NOINTERFACE";
+    case DIERR_OUTOFMEMORY:            return "DIERR_OUTOFMEMORY";
+    case DIERR_UNSUPPORTED:            return "DIERR_UNSUPPORTED";
+    case DIERR_UNPLUGGED:              return "DIERR_UNPLUGGED";
+    // not DirectInput codes, but ones that do turn up: the underlying
+    // device handle going invalid, and exclusive access refused
+    case E_HANDLE:                     return "E_HANDLE (device handle invalid)";
+    case E_ACCESSDENIED:               return "E_ACCESSDENIED";
+    default:                           return "";
+    }
+}
+
+/// Report a call that did not succeed, and hand the result straight back.
+HRESULT reported(const wchar_t* device, const char* call, HRESULT hr) {
+    if (FAILED(hr)) {
+        const char* named = diErrorName(hr);
+        if (*named)
+            LOG_INFO("FFB [%ls] %s FAILED: %s", device, call, named);
+        else
+            LOG_INFO("FFB [%ls] %s FAILED: hr=0x%08lx", device, call, hr);
+    }
+    return hr;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
 WrapperEffect::WrapperEffect(IDirectInputEffect* real, std::shared_ptr<FFBFilter> filter)
@@ -99,10 +150,12 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::SetParameters(LPCDIEFFECT peff, DWORD d
     if (m_filter->getScale() < 100 && peff) {
         DIEFFECT copy = *peff;
         m_filter->scaleEffect(&copy, m_guid);
-        return m_real->SetParameters(&copy, dwFlags);
+        return reported(m_filter->deviceName().c_str(), "Effect.SetParameters",
+                        m_real->SetParameters(&copy, dwFlags));
     }
 
-    return m_real->SetParameters(peff, dwFlags);
+    return reported(m_filter->deviceName().c_str(), "Effect.SetParameters",
+                    m_real->SetParameters(peff, dwFlags));
 }
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::Start(DWORD dwIterations, DWORD dwFlags) {
@@ -114,7 +167,8 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::Start(DWORD dwIterations, DWORD dwFlags
 
     if (!m_filter->isFFBAllowed()) return DI_OK;
     if (!m_real) return DI_OK;
-    return m_real->Start(dwIterations, dwFlags);
+    return reported(m_filter->deviceName().c_str(), "Effect.Start",
+                    m_real->Start(dwIterations, dwFlags));
 }
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::Stop() {
@@ -126,7 +180,8 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::Stop() {
 
     if (!m_filter->isFFBAllowed()) return DI_OK;
     if (!m_real) return DI_OK;
-    return m_real->Stop();
+    return reported(m_filter->deviceName().c_str(), "Effect.Stop",
+                    m_real->Stop());
 }
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::GetEffectStatus(LPDWORD pdwFlags) {
@@ -140,7 +195,8 @@ HRESULT STDMETHODCALLTYPE WrapperEffect::GetEffectStatus(LPDWORD pdwFlags) {
 HRESULT STDMETHODCALLTYPE WrapperEffect::Download() {
     if (!m_filter->isFFBAllowed()) return DI_OK;
     if (!m_real) return DI_OK;
-    return m_real->Download();
+    return reported(m_filter->deviceName().c_str(), "Effect.Download",
+                    m_real->Download());
 }
 
 HRESULT STDMETHODCALLTYPE WrapperEffect::Unload() {

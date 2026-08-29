@@ -85,6 +85,9 @@ public:
 private:
     Base*                      m_real;
     std::shared_ptr<FFBFilter> m_filter;
+    //: Set once Acquire has failed, so a polled retry does not repeat
+    //: the same line hundreds of times.
+    bool m_acquireFailed = false;
     volatile LONG              m_refCount = 1;
 };
 

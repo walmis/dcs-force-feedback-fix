@@ -12,11 +12,16 @@ disable or scale FFB for specific joystick types (e.g. vJoy) in DCS World.
 - **Per-device FFB blocking** — completely disable FFB for devices matched by
   product name substring (e.g. vJoy)
 - **Per-device FFB scaling** — scale force magnitudes to a percentage (0-100%)
+- **Device enumeration order** — optionally decide which devices DirectInput
+  reports first, for games that give FFB to the devices they see first
 - **FFB auto-restart after reconnect** — automatically restores running FFB
   effects (spring centering, trim forces, etc.) when a device is disconnected
   and reconnected mid-session, without requiring a mission restart
 - **FFB effect logging** — log all FFB operations (CreateEffect, Start, Stop,
   SetParameters, SendForceFeedbackCommand) to a log file for debugging
+- **Failure reporting** — when a force feedback call fails, the log names the
+  reason (`DIERR_NOTEXCLUSIVEACQUIRED`, `E_HANDLE`, …) rather than recording
+  only that the game asked
 - **INI-based configuration** — simple `dinput8.ini` config file, no registry
   or external dependencies
 - **Full COM proxy** — wraps both `IDirectInput8A` and `IDirectInput8W`,
@@ -73,6 +78,11 @@ AutoRestart=true    ; Auto-restart FFB effects after device reconnection
 ; Actions: block, allow, or 0-100 (scale percentage)
 vJoy=block          ; Block all FFB for any device with "vJoy" in the name
 ; MSFFB 2=50        ; Example: scale to 50%
+
+[DeviceOrder]
+; Optional — omit this section entirely and nothing is reordered.
+; 1=Rhino FFB Joystick   ; Report this device first
+; 2=Rhino FFB Pedals     ; then this one; anything unlisted follows
 ```
 
 ### How to Find Your Device Names
@@ -138,6 +148,42 @@ VPforce=50          ; Scale VPforce FFB to 50%
 
 Rules in `[FFBDevices]` match against the device's DirectInput **product name**
 using case-insensitive substring search. The first matching rule wins.
+
+### Device Enumeration Order
+
+Some games give force feedback to the devices they see **first**, and Windows
+caches the order DirectInput reports them in. When another FFB device sits
+ahead of the one you fly, the game drives that one instead — and blocking it
+does not help: blocking removes a device's force feedback but not its place in
+the queue.
+
+The symptom is distinctive. Effects are *created* on your stick and never
+*start*, and the log shows the calls failing:
+
+```
+FFB [VPforce Rhino FFB Joystick] Effect.Start FAILED: E_HANDLE (device handle invalid)
+```
+
+`[DeviceOrder]` puts named devices at the front:
+
+```ini
+[DeviceOrder]
+1=Rhino FFB Joystick
+2=Rhino FFB Pedals
+```
+
+Matching is the same case-insensitive substring used by `[FFBDevices]`, and
+the number is the position, not the line order. Devices you do not list keep
+their usual order behind the ones you do.
+
+Pick a fragment specific enough to match only the device you mean. `Rhino`
+alone matches a VPforce stick, pedals and collective alike, and `Warthog`
+matches both halves of a HOTAS — every device a fragment matches gets that
+position, which is rarely what was intended.
+
+**It does nothing unless you list something.** Some games identify a device by
+its position rather than its name, so reordering underneath one that did not
+ask for it can disturb their bindings — omit the section and nothing changes.
 
 ## Architecture
 
